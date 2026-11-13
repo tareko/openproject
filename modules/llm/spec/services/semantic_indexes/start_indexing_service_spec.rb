@@ -42,15 +42,31 @@ RSpec.describe SemanticIndexes::StartIndexingService, with_good_job_batches: [Ll
 
   it "starts indexing in a batch it remembers" do
     expect(result).to be_success
-    expect(semantic_index.reload).to be_indexing
+    expect(semantic_index.reload.status).to eq("indexing")
     expect(index_jobs.pluck(:batch_id)).to eq([semantic_index.indexing_batch_id])
   end
 
   context "when the Semantic Index is already indexing" do
-    let(:semantic_index) { create(:semantic_index, state: "indexing") }
+    let(:semantic_index) { create(:semantic_index, :indexing) }
 
     it "fails without enqueuing" do
       expect(result).to be_failure
+      expect(index_jobs).to be_empty
+    end
+  end
+
+  context "when an incremental sync run holds the claim on the index" do
+    before do
+      batch = GoodJob::BatchRecord.create!(on_finish: Llm::FinishSemanticIndexingJob.name,
+                                           serialized_properties: { semantic_index_id: semantic_index.id,
+                                                                    full_index: false })
+      semantic_index.update!(indexing_batch_id: batch.id)
+    end
+
+    it "fails without enqueuing" do
+      expect(result).to be_failure
+      expect(result.message).to eq(I18n.t("admin.semantic_indexes.start_indexing.not_indexable"))
+      expect(semantic_index.reload.status).to eq("indexing")
       expect(index_jobs).to be_empty
     end
   end
@@ -61,7 +77,7 @@ RSpec.describe SemanticIndexes::StartIndexingService, with_good_job_batches: [Ll
     it "fails without enqueuing" do
       expect(result).to be_failure
       expect(result.message).to eq(I18n.t("admin.semantic_indexes.indexing.not_ready.pgvector_missing"))
-      expect(semantic_index.reload).to be_not_indexed
+      expect(semantic_index.reload.status).to eq("not_indexed")
       expect(index_jobs).to be_empty
     end
   end
@@ -71,7 +87,7 @@ RSpec.describe SemanticIndexes::StartIndexingService, with_good_job_batches: [Ll
 
     it "fails without changing the state" do
       expect(result).to be_failure
-      expect(semantic_index.reload).to be_not_indexed
+      expect(semantic_index.reload.status).to eq("not_indexed")
     end
   end
 end

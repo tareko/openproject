@@ -72,7 +72,8 @@ RSpec.describe "Admin semantic indexes", :skip_csrf,
       post semantic_indexes_path, params: valid_params
 
       expect(response).to redirect_to(llm_feature_bindings_path)
-      expect(SemanticIndex.sole).to have_attributes(title: "Nomic small", state: "not_indexed")
+      expect(SemanticIndex.sole).to have_attributes(title: "Nomic small")
+      expect(SemanticIndex.sole.status).to eq("not_indexed")
     end
 
     it "refuses to start indexing" do
@@ -82,7 +83,7 @@ RSpec.describe "Admin semantic indexes", :skip_csrf,
 
       expect(response).to redirect_to(llm_feature_bindings_path)
       expect(flash[:error]).to eq(I18n.t("admin.semantic_indexes.indexing.not_ready.pgvector_missing"))
-      expect(semantic_index.reload).to be_not_indexed
+      expect(semantic_index.reload.status).to eq("not_indexed")
       expect(GoodJob::Job.where(job_class: Llm::IndexWorkPackagesJob.name)).to be_empty
     end
   end
@@ -98,21 +99,21 @@ RSpec.describe "Admin semantic indexes", :skip_csrf,
     end
 
     it "refuses to start indexing" do
-      semantic_index = create(:semantic_index, state: "indexing")
+      semantic_index = create(:semantic_index, :indexing)
 
       post start_indexing_semantic_index_path(semantic_index)
 
       expect(response).to have_http_status(:forbidden)
-      expect(semantic_index.reload).to be_indexing
+      expect(semantic_index.reload.status).to eq("indexing")
     end
 
     it "refuses to stop indexing" do
-      semantic_index = create(:semantic_index, state: "indexing")
+      semantic_index = create(:semantic_index, :indexing)
 
       post stop_indexing_semantic_index_path(semantic_index)
 
       expect(response).to have_http_status(:forbidden)
-      expect(semantic_index.reload).to be_indexing
+      expect(semantic_index.reload.status).to eq("indexing")
     end
   end
 
@@ -164,7 +165,8 @@ RSpec.describe "Admin semantic indexes", :skip_csrf,
       expect(response).to redirect_to(llm_feature_bindings_path)
       expect(SemanticIndex.sole).to have_attributes(title: "Nomic small", model_id: "bge-m3",
                                                     embedding_vector_dimensions: 768,
-                                                    context_token_length: 2048, state: "not_indexed")
+                                                    context_token_length: 2048)
+      expect(SemanticIndex.sole.status).to eq("not_indexed")
     end
 
     it "re-renders the form with errors" do
@@ -234,21 +236,25 @@ RSpec.describe "Admin semantic indexes", :skip_csrf,
 
         expect(response).to redirect_to(llm_feature_bindings_path)
         expect(flash[:notice]).to eq(I18n.t("admin.semantic_indexes.start_indexing.started", title: semantic_index.title))
-        expect(semantic_index.reload).to be_indexing
+        expect(semantic_index.reload.status).to eq("indexing")
         expect(index_jobs.pluck(:batch_id)).to eq([semantic_index.indexing_batch_id])
       end
 
       it "re-indexes a ready semantic index" do
-        semantic_index.update!(state: "ready")
+        semantic_index.update!(last_indexing_started_at: 1.hour.ago)
 
         post start_indexing_semantic_index_path(semantic_index)
 
-        expect(semantic_index.reload).to be_indexing
+        expect(semantic_index.reload.status).to eq("indexing")
         expect(index_jobs.count).to eq(1)
       end
 
       it "refuses to start indexing twice" do
-        semantic_index.update!(state: "indexing")
+        semantic_index.start_indexing! do
+          GoodJob::Batch.new(semantic_index_id: semantic_index.id, full_index: true,
+                             window_started_at: Time.current).tap(&:save)
+        end
+
 
         post start_indexing_semantic_index_path(semantic_index)
 
@@ -257,7 +263,11 @@ RSpec.describe "Admin semantic indexes", :skip_csrf,
       end
 
       it "shows a stop button while indexing" do
-        semantic_index.update!(state: "indexing")
+        semantic_index.start_indexing! do
+          GoodJob::Batch.new(semantic_index_id: semantic_index.id, full_index: true,
+                             window_started_at: Time.current).tap(&:save)
+        end
+
 
         get llm_feature_bindings_path
 
@@ -274,7 +284,7 @@ RSpec.describe "Admin semantic indexes", :skip_csrf,
 
         expect(response).to redirect_to(llm_feature_bindings_path)
         expect(flash[:notice]).to eq(I18n.t("admin.semantic_indexes.stop_indexing.stopped", title: semantic_index.title))
-        expect(semantic_index.reload).to be_not_indexed
+        expect(semantic_index.reload.status).to eq("not_indexed")
         expect(GoodJob::Job.where(batch_id:).reload.map(&:status)).to all(eq(:discarded))
       end
 
@@ -283,14 +293,14 @@ RSpec.describe "Admin semantic indexes", :skip_csrf,
 
         expect(response).to redirect_to(llm_feature_bindings_path)
         expect(flash[:error]).to eq(I18n.t("admin.semantic_indexes.stop_indexing.not_indexing"))
-        expect(semantic_index.reload).to be_not_indexed
+        expect(semantic_index.reload.status).to eq("not_indexed")
       end
     end
   end
 
   describe "activation" do
-    let!(:current) { create(:semantic_index, title: "Qwen3 baseline", state: "ready") }
-    let!(:candidate) { create(:semantic_index, title: "Nomic small", state: "ready") }
+    let!(:current) { create(:semantic_index, :ready, title: "Qwen3 baseline") }
+    let!(:candidate) { create(:semantic_index, :ready, title: "Nomic small") }
 
     before { connection.feature_bindings.create!(feature_key: "semantic_search", semantic_index: current) }
 
@@ -339,7 +349,7 @@ RSpec.describe "Admin semantic indexes", :skip_csrf,
   describe "GET status" do
     it "reports the progress of a semantic index that is indexing and keeps polling" do
       batch = GoodJob::Batch.new.tap(&:save)
-      create(:semantic_index, state: "indexing", indexing_batch_id: batch.id)
+      create(:semantic_index, indexing_batch_id: batch.id)
       [Time.current, nil, nil, nil].each do |finished_at|
         GoodJob::Job.create!(id: SecureRandom.uuid, active_job_id: SecureRandom.uuid, batch_id: batch.id,
                              job_class: Llm::EmbedWorkPackagesJob.name, queue_name: "default",
@@ -355,14 +365,14 @@ RSpec.describe "Admin semantic indexes", :skip_csrf,
       expect(response.body).to include('method="morph"', 'data-poll-for-changes-continuous-value="true"')
     end
 
-    it "morphs the box and drops the poller once indexing has finished" do
-      create(:semantic_index, state: "failed", error_message: "Some Error")
+    it "morphs the box with a recorded error and drops the poller once nothing is indexing" do
+      create(:semantic_index, error_kind: "embedding_failures", error_message: "Some Error")
 
       get status_semantic_indexes_path, headers: turbo_headers
 
       expect(response).to have_http_status(:ok)
       expect(response.body).to include("turbo-stream",
-                                       I18n.t("admin.semantic_indexes.states.failed"),
+                                       I18n.t("admin.semantic_indexes.states.not_indexed"),
                                        "Some Error",
                                        'method="morph"')
       expect(response.body).not_to include("poll-for-changes")

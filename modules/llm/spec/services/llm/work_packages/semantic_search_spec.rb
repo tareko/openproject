@@ -37,10 +37,10 @@ RSpec.describe Llm::WorkPackages::SemanticSearch,
   let(:session_double) { instance_double(Llm::Session) }
   let(:embedding_double) { instance_double(RubyLLM::Embedding, vectors: [0.1, 0.2, 0.3]) }
 
-  # A binding may only point at a ready index, so later state changes have to
-  # happen behind the model's back.
+  # A binding may point at any index; search availability is derived from the
+  # index's watermark, not stored on it.
   def activate_semantic_index
-    semantic_index = create(:semantic_index, state: "ready", model_id: "bge-m3",
+    semantic_index = create(:semantic_index, :ready, model_id: "bge-m3",
                                              embedding_vector_dimensions: 3)
     create(:llm_feature_binding, llm_connection: connection, feature_key: "semantic_search",
                                  semantic_index:)
@@ -60,21 +60,39 @@ RSpec.describe Llm::WorkPackages::SemanticSearch,
       end
     end
 
-    it "is false while the active semantic index has never been indexed" do
+    it "is false while the active semantic index has never completed a run" do
       semantic_index = activate_semantic_index
-      semantic_index.update_columns(state: "not_indexed")
+      semantic_index.update_columns(last_indexing_started_at: nil)
 
       expect(described_class).not_to be_available
     end
 
-    it "is true while the active semantic index is indexing, ready or has failed" do
+    it "is true once a run completed, also while a re-index is in progress" do
       semantic_index = activate_semantic_index
 
-      %w[indexing ready failed].each do |state|
-        semantic_index.update_columns(state:)
+      expect(described_class).to be_available
 
-        expect(described_class).to be_available, "expected to be available while #{state}"
+      semantic_index.start_indexing! do
+        GoodJob::Batch.new(semantic_index_id: semantic_index.id, full_index: true,
+                           window_started_at: Time.current).tap(&:save)
       end
+
+      expect(described_class).to be_available
+    end
+
+    it "is false while the first run of the active index is still in progress" do
+      semantic_index = create(:semantic_index, :indexing, model_id: "bge-m3", embedding_vector_dimensions: 3)
+      create(:llm_feature_binding, llm_connection: connection, feature_key: "semantic_search",
+                                   semantic_index:)
+
+      expect(described_class).not_to be_available
+    end
+
+    it "stays true when the active index has a recorded error, failures are data not a state" do
+      semantic_index = activate_semantic_index
+      semantic_index.update_columns(error_kind: "embedding_failures", error_message: "Some WPs failed")
+
+      expect(described_class).to be_available
     end
 
     it "is false when the index model is no longer offered by the server" do
@@ -109,9 +127,9 @@ RSpec.describe Llm::WorkPackages::SemanticSearch,
       expect(session_double).not_to have_received(:embed)
     end
 
-    it "returns nothing while the active semantic index has never been indexed" do
+    it "returns nothing while the active semantic index has never completed a run" do
       semantic_index = activate_semantic_index
-      semantic_index.update_columns(state: "not_indexed")
+      semantic_index.update_columns(last_indexing_started_at: nil)
 
       expect(described_class.query_vector("some query")).to be_nil
       expect(session_double).not_to have_received(:embed)

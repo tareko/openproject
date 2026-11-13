@@ -25,8 +25,6 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 #
 # See COPYRIGHT and LICENSE files for more details.
-#++
-
 require "spec_helper"
 require_module_spec_helper
 
@@ -48,12 +46,18 @@ RSpec.describe Llm::FinishSemanticIndexingJob do
 
     described_class.perform_now(batch, { event: :finish })
 
-    expect(semantic_index.reload).to be_ready
+    semantic_index.reload
+    expect(semantic_index.status).to eq("ready")
+    expect(semantic_index.indexing_batch_id).to be_nil
+    expect(semantic_index.last_indexing_started_at).to be_within(1.second).of(batch.properties[:window_started_at])
+    expect(semantic_index.error_kind).to be_nil
   end
 
   it "marks the semantic index failed with the number of failed individual work packages" do
     embed_job
-    embed_job(error: "Llm::Errors::ApiError: boom")
+    embed_job(error: "Llm::Errors::ApiError: boom", work_package_ids: [11])
+    # a failed multi-wp job is split into single-wp jobs, so it is not counted here
+    embed_job(error: "Llm::Errors::ApiError: boom", work_package_ids: [12, 13])
 
     described_class.perform_now(batch, { event: :finish })
 
@@ -82,6 +86,61 @@ RSpec.describe Llm::FinishSemanticIndexingJob do
 
     described_class.perform_now(batch, { event: :finish })
 
-    expect(semantic_index.reload).to be_ready
+    expect(semantic_index.reload.last_indexing_started_at).to be_within(1.second).of(30.minutes.ago)
+  end
+
+  it "ignores the callback when the claim was released (stopped run)" do
+    embed_job
+    semantic_index.stop_indexing!
+
+    described_class.perform_now(batch, { event: :finish })
+
+    semantic_index.reload
+    expect(semantic_index.indexing_batch_id).to be_nil
+    expect(semantic_index.last_indexing_started_at).to be_within(1.second).of(2.hours.ago)
+  end
+
+  it "ignores the callback for a batch that is not the claimed run" do
+    other = GoodJob::Batch.new(semantic_index_id: semantic_index.id, full_index: false,
+                               window_started_at: 1.hour.ago).tap(&:save)
+    embed_job(on: other, error: "Llm::Errors::ApiError: boom")
+
+    described_class.perform_now(other, { event: :finish })
+
+    semantic_index.reload
+    expect(semantic_index.status).to eq("indexing")
+    expect(semantic_index.error_kind).to be_nil
+    expect(semantic_index.last_indexing_started_at).to be_within(1.second).of(2.hours.ago)
+  end
+
+  context "with an incremental cron batch" do
+    let(:semantic_index) { create(:semantic_index, :ready, last_indexing_started_at: 2.hours.ago) }
+    let(:batch) do
+      semantic_index.start_indexing! do
+        GoodJob::Batch.new(semantic_index_id: semantic_index.id, full_index: false,
+                           window_started_at: 1.hour.ago).tap(&:save)
+      end
+    end
+
+    it "advances the watermark and stays ready when every embed job succeeded" do
+      embed_job
+
+      described_class.perform_now(batch, { event: :finish })
+
+      semantic_index.reload
+      expect(semantic_index.status).to eq("ready")
+      expect(semantic_index.last_indexing_started_at).to be_within(1.second).of(1.hour.ago)
+    end
+
+    it "records embedding failures as data and keeps the watermark when an embed job failed" do
+      embed_job(error: "Llm::Errors::ApiError: boom", work_package_ids: [11])
+
+      described_class.perform_now(batch, { event: :finish })
+
+      semantic_index.reload
+      expect(semantic_index).to have_attributes(error_kind: "embedding_failures", failed_work_package_count: 1)
+      expect(semantic_index.error_message).to eq("1 work package could not be embedded.")
+      expect(semantic_index.last_indexing_started_at).to be_within(1.second).of(2.hours.ago)
+    end
   end
 end

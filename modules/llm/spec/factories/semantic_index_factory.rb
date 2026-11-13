@@ -26,7 +26,6 @@
 #
 # See COPYRIGHT and LICENSE files for more details.
 #++
-
 FactoryBot.define do
   factory :semantic_index do
     sequence(:title) { |n| "Semantic index #{n}" }
@@ -34,5 +33,20 @@ FactoryBot.define do
     model_id { "bge-m3" }
     embedding_vector_dimensions { 1024 }
     context_token_length { 8192 }
+
+    # status is derived: "ready" once the watermark is set, "indexing" while the
+    # claimed batch is unfinished
+    trait :ready do
+      last_indexing_started_at { 1.hour.ago }
+    end
+
+    trait :indexing do
+      after(:create) do |semantic_index|
+        batch = GoodJob::Batch.new(semantic_index_id: semantic_index.id,
+                                   full_index: true,
+                                   window_started_at: 1.hour.ago).tap(&:save)
+        semantic_index.update!(indexing_batch_id: batch.id)
+      end
+    end
   end
 end

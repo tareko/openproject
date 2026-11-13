@@ -32,7 +32,7 @@ require_module_spec_helper
 
 RSpec.describe "Subscription to the aggregated journal event", with_settings: { journal_aggregation_time_minutes: 0 } do # rubocop:disable RSpec/DescribeClass
   let(:work_package) { create(:work_package, subject: "Fix login bug", description: "Users cannot log in.") }
-  let(:semantic_index) { create(:semantic_index, state: "ready") }
+  let(:semantic_index) { create(:semantic_index, :ready) }
 
   before do
     allow(Llm::WorkPackages::SemanticSearch).to receive_messages(available?: true, active_semantic_index: semantic_index)
