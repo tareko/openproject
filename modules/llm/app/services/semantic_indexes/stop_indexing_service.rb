@@ -45,13 +45,15 @@ module SemanticIndexes
     def perform
       return failure(I18n.t(:notice_not_authorized)) unless authorized?
 
-      batch = model.indexing_batch
-      model.stop_indexing!
-      discard_jobs(batch)
+      with_lock do
+        return failure((I18n.t("admin.semantic_indexes.stop_indexing.not_indexing"))) unless model.indexing?
+
+        batch = model.indexing_batch
+        discard_jobs(batch)
+        model.update!(indexing_batch_id: nil)
+      end
 
       ServiceResult.success(result: model)
-    rescue SemanticIndex::InvalidTransitionError
-      failure(I18n.t("admin.semantic_indexes.stop_indexing.not_indexing"))
     end
 
     private

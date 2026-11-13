@@ -26,7 +26,6 @@
 #
 # See COPYRIGHT and LICENSE files for more details.
 #++
-
 module Llm
   class FinishSemanticIndexingJob < ApplicationJob
     queue_with_priority :low
@@ -36,15 +35,13 @@ module Llm
       return unless semantic_index&.indexing?
 
       progress = Llm::IndexingProgress.new(batch)
-      if progress.failed_work_package_count.positive?
-        semantic_index.fail_indexing!(
-          I18n.t("admin.semantic_indexes.indexing.failed_work_packages", count: progress.failed_work_package_count)
-        )
-      else
-        semantic_index.finish_indexing!
-      end
-    rescue SemanticIndex::InvalidTransitionError
-      nil
+      error_message = I18n.t("admin.semantic_indexes.indexing.failed_work_packages", count: progress.failed_work_package_count) if progress.failed_count.positive?
+
+      semantic_index.update!(
+        indexing_batch_id: nil,
+        error_message:,
+        window_started_at: batch.properties[:window_started_at]
+      )
     end
   end
 end

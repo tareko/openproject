@@ -30,16 +30,8 @@
 class SemanticIndex < ApplicationRecord
   class InvalidTransitionError < StandardError; end
 
-  INDEXABLE_STATES = %w[not_indexed failed ready].freeze
 
   has_many :llm_feature_bindings, dependent: :restrict_with_error
-
-  enum :state, {
-    not_indexed: "not_indexed",
-    indexing: "indexing",
-    ready: "ready",
-    failed: "failed"
-  }
 
   validates :title, presence: true
   validates :model_id, presence: true, length: { maximum: LlmModel::MAX_EXTERNAL_ID_LENGTH }
@@ -66,43 +58,23 @@ class SemanticIndex < ApplicationRecord
 
   def active? = persisted? && self.class.active_id == id
 
+  def status
+    return "indexing" if indexing?
+    return "failure" if error_message.present?
+    return "ready" if last_indexing_started_at.present?
+
+    "not_indexed"
+  end
+
   def indexing_batch
     return if indexing_batch_id.nil?
 
     GoodJob::BatchRecord.find_by(id: indexing_batch_id)
   end
 
-  def indexable? = INDEXABLE_STATES.include?(state)
+  def indexing? = indexing_batch.present? && indexing_batch.finished_at.nil?
 
-  def searchable? = !not_indexed?
+  def indexable? = !indexing?
 
-  def start_indexing!
-    with_lock do
-      raise InvalidTransitionError, "cannot start indexing from #{state}" unless indexable?
-
-      update!(state: :indexing, error_message: nil)
-    end
-  end
-
-  def stop_indexing!
-    transition_from_indexing!(state: :not_indexed, error_message: nil)
-  end
-
-  def finish_indexing!
-    transition_from_indexing!(state: :ready)
-  end
-
-  def fail_indexing!(error_message)
-    transition_from_indexing!(state: :failed, error_message:)
-  end
-
-  private
-
-  def transition_from_indexing!(**attributes)
-    with_lock do
-      raise InvalidTransitionError, "cannot finish indexing from #{state}" unless indexing?
-
-      update!(**attributes)
-    end
-  end
+  def searchable? = last_indexing_started_at.present?
 end

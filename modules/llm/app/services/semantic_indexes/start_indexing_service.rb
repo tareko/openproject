@@ -26,7 +26,6 @@
 #
 # See COPYRIGHT and LICENSE files for more details.
 #++
-
 module SemanticIndexes
   class StartIndexingService < ::BaseServices::BaseCallable
     attr_reader :user, :model
@@ -44,12 +43,14 @@ module SemanticIndexes
 
       return pgvector_missing unless OpenProject::Llm::Pgvector.available?
 
-      model.start_indexing!
-      model.update!(indexing_batch_id: indexing_batch.id)
+      with_lock do
+        return failure(message: I18n.t("admin.semantic_indexes.start_indexing.not_indexable")) unless model.indexable?
+
+        # TODO: different error handling so that failed embed count can be kept while temporary errors reset in new run
+        model.update!(indexing_batch_id: indexing_batch.id)
+      end
 
       ServiceResult.success(result: model)
-    rescue SemanticIndex::InvalidTransitionError
-      failure(I18n.t("admin.semantic_indexes.start_indexing.not_indexable"))
     end
 
     private
