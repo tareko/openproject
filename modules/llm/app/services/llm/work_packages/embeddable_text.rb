@@ -34,6 +34,9 @@ module Llm
 
       DEFAULT_CONTEXT_WINDOW = 8000
 
+      # Journal detail keys whose changes alter the embedded text.
+      EMBEDDED_ATTRIBUTES = %w[subject description].freeze
+
       def self.for(work_package, context_window: DEFAULT_CONTEXT_WINDOW)
         context_window = context_window.to_i
         max_chars = context_window.positive? ? context_window : DEFAULT_CONTEXT_WINDOW
