@@ -107,8 +107,7 @@ module Bim
         clear_pending_ifc_model_session
 
         if service_result.success?
-          ::Attachments::FinishDirectUploadJob.perform_later attachment.id,
-                                                             allowlist: false
+          ::Bim::IfcModels::FinishDirectUploadAndConvertJob.perform_later(@ifc_model)
 
           flash[:notice] = t("ifc_models.flash_messages.upload_successful")
           redirect_to action: :index

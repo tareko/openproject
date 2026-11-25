@@ -32,15 +32,23 @@ module Bim
       protected
 
       def after_perform(call)
-        if call.success?
-          IfcConversionJob.perform_later(call.result)
-        end
+        schedule_conversion(call.result) if call.success?
 
         call
       end
 
       def instance(_params)
         ::Bim::IfcModels::IfcModel.new
+      end
+
+      private
+
+      # A direct upload is still in its staging area at this point.
+      # FinishDirectUploadAndConvertJob takes over once the file is in its final storage.
+      def schedule_conversion(ifc_model)
+        return if ifc_model.ifc_attachment.prepared?
+
+        ScheduleConversionService.new(ifc_model).upload_finished
       end
     end
   end

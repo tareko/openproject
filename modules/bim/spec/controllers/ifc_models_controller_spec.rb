@@ -64,7 +64,34 @@ RSpec.describe Bim::IfcModels::IfcModelsController do
       session[:pending_ifc_model_attachment_id] = pending_attachment.id
       session[:pending_ifc_model_project_id] = project.id
       session[:pending_ifc_model_callback_nonce] = callback_nonce
-      allow(Attachments::FinishDirectUploadJob).to receive(:perform_later)
+      allow(Bim::IfcModels::FinishDirectUploadAndConvertJob).to receive(:perform_later)
+    end
+
+    it "finishes the upload and leaves converting the model to after that" do
+      callback_token = Rails.application
+                            .message_verifier(Bim::IfcModels::IfcModelsController::DIRECT_UPLOAD_CALLBACK_PURPOSE)
+                            .generate(
+                              {
+                                attachment_id: pending_attachment.id,
+                                project_id: project.id,
+                                user_id: user.id,
+                                nonce: callback_nonce
+                              },
+                              purpose: Bim::IfcModels::IfcModelsController::DIRECT_UPLOAD_CALLBACK_PURPOSE,
+                              expires_in: Bim::IfcModels::IfcModelsController::DIRECT_UPLOAD_CALLBACK_TTL
+                            )
+
+      get :direct_upload_finished,
+          params: {
+            project_id: project.identifier,
+            key: "uploads/attachment/file/#{pending_attachment.id}/model.ifc",
+            du_token: callback_token
+          }
+
+      ifc_model = pending_attachment.reload.container
+      expect(response).to redirect_to(action: :index)
+      expect(Bim::IfcModels::FinishDirectUploadAndConvertJob).to have_received(:perform_later).with(ifc_model)
+      expect(Bim::IfcModels::IfcConversionJob).not_to have_been_enqueued
     end
 
     it "rejects callbacks with tampered tokens" do
@@ -80,7 +107,7 @@ RSpec.describe Bim::IfcModels::IfcModelsController do
       expect(Bim::IfcModels::CreateService).not_to have_received(:new)
       expect(response).to redirect_to(action: :new)
       expect(flash[:error]).to eq("Direct upload failed.")
-      expect(Attachments::FinishDirectUploadJob).not_to have_received(:perform_later)
+      expect(Bim::IfcModels::FinishDirectUploadAndConvertJob).not_to have_received(:perform_later)
     end
 
     it "rejects callbacks trying to claim another upload" do
@@ -110,7 +137,7 @@ RSpec.describe Bim::IfcModels::IfcModelsController do
       expect(response).to redirect_to(action: :new)
       expect(flash[:error]).to eq("Direct upload failed.")
       expect(Bim::IfcModels::CreateService).not_to have_received(:new)
-      expect(Attachments::FinishDirectUploadJob).not_to have_received(:perform_later)
+      expect(Bim::IfcModels::FinishDirectUploadAndConvertJob).not_to have_received(:perform_later)
     end
   end
 

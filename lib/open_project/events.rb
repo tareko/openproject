@@ -45,6 +45,7 @@ module OpenProject
     AGGREGATED_MESSAGE_JOURNAL_READY = "aggregated_message_journal_ready"
 
     ATTACHMENT_CREATED = "attachment_created"
+    ATTACHMENT_SCANNED = "attachment_scanned"
 
     JOURNAL_CREATED = "journal_created"
     JOURNAL_UPDATED = "journal_updated"

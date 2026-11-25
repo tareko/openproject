@@ -70,6 +70,7 @@ module Attachments
     def handle_success_response(attachment)
       Rails.logger.warn { "Scanned file #{attachment.id}. No viruses found." }
       attachment.update!(status: :scanned)
+      OpenProject::Notifications.send(OpenProject::Events::ATTACHMENT_SCANNED, attachment:)
     end
 
     def handle_virus_response(attachment, virus_name)
@@ -95,7 +96,7 @@ module Attachments
     end
 
     def create_journal(container, notes)
-      return unless container
+      return unless container&.class&.journaled?
 
       ::Journals::CreateService
         .new(container, User.system)

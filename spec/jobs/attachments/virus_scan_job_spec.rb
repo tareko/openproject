@@ -51,6 +51,16 @@ RSpec.describe Attachments::VirusScanJob,
 
         expect(attachment).to have_received(:update!).with(status: :scanned)
       end
+
+      it "announces the clean file" do
+        allow(attachment).to receive(:update!)
+        allow(OpenProject::Notifications).to receive(:send)
+
+        subject
+
+        expect(OpenProject::Notifications)
+          .to have_received(:send).with(OpenProject::Events::ATTACHMENT_SCANNED, attachment:)
+      end
     end
 
     context "when error occurs in clamav" do
@@ -79,6 +89,32 @@ RSpec.describe Attachments::VirusScanJob,
           expect(attachment).to have_received(:update!).with(status: :quarantined)
           expect(journal_service_double)
             .to have_received(:call).with(notes: /It has been quarantined/)
+        end
+
+        it "does not announce the file as clean" do
+          allow(attachment).to receive(:update!)
+          allow(Journals::CreateService).to receive(:new).and_return(journal_service_double)
+          allow(journal_service_double).to receive(:call)
+          allow(OpenProject::Notifications).to receive(:send)
+
+          subject
+
+          expect(OpenProject::Notifications)
+            .not_to have_received(:send).with(OpenProject::Events::ATTACHMENT_SCANNED, anything)
+        end
+
+        context "when the attachment's container is not journaled" do
+          let(:attachment) { build_stubbed(:attachment, status: attachment_status, container: build_stubbed(:user)) }
+
+          it "quarantines the file without a journal note" do
+            allow(attachment).to receive(:update!)
+            allow(Journals::CreateService).to receive(:new)
+
+            subject
+
+            expect(attachment).to have_received(:update!).with(status: :quarantined)
+            expect(Journals::CreateService).not_to have_received(:new)
+          end
         end
       end
 
