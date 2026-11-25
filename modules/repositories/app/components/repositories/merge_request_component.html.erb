@@ -47,7 +47,16 @@ See COPYRIGHT and LICENSE files for more details.
 
         if latest_pipeline.present?
           row.with_column do
-            render(Primer::Beta::Link.new(href: latest_pipeline.web_url, data: { allow_external_link: true })) do
+            render(Primer::Beta::Link.new(
+              href: latest_pipeline.web_url,
+              data: {
+                allow_external_link: true,
+                hover_card_trigger_target: :trigger,
+                # TODO: This ID needs to be unique at all times...
+                # TODO: test what happens if the template is missing
+                hover_card_popover_template_id: "foo-test-#{merge_request.display_id}"
+              }
+            )) do
               render(Repositories::StatusComponent.new(status: pipeline_status)) do
                 render(Primer::Beta::Text.new) { pipeline_status_label }
               end
@@ -90,3 +99,18 @@ See COPYRIGHT and LICENSE files for more details.
     end
   end
 %>
+
+<% if latest_pipeline.present? && latest_pipeline.jobs.any? %>
+  <%=
+    content_tag(:template, id: "foo-test-#{merge_request.display_id}") do
+      render(Primer::Alpha::ActionList.new) do |list|
+        merge_request.latest_pipeline.jobs.each do |job|
+          list.with_item(label: job.name, href: job.web_url, target: "_blank") do |item|
+          status = job_status(job.status)
+            item.with_leading_visual_icon(icon: status.icon, classes: "__hl_foreground __hl_repositories_#{status.type}_status_#{status.value}")
+          end
+        end
+      end
+    end
+  %>
+<% end %>

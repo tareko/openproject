@@ -62,9 +62,15 @@ module Repositories
     def pipeline_status
       return nil unless latest_pipeline
 
-      status = latest_pipeline.status.to_sym
+      job_status(latest_pipeline.status)
+    end
 
-      case status
+    def pipeline_status_label
+      t(".pipeline_statuses.#{pipeline_status.value}")
+    end
+
+    def job_status(status_name)
+      case status_name.to_sym
       when :success
         PipelineStatuses::SUCCESS
       when :failed
@@ -92,12 +98,8 @@ module Repositories
       when :manual
         PipelineStatuses::MANUAL
       else
-        raise ArgumentError, "Unsupported pipeline state #{status}"
+        raise ArgumentError, "Unsupported pipeline state #{status_name}"
       end
-    end
-
-    def pipeline_status_label
-      t(".pipeline_statuses.#{pipeline_status.value}")
     end
   end
 end
