@@ -37,7 +37,14 @@ module API
       }.freeze
 
       included do
-        def to_json(*)
+        def to_json(options = {})
+          # FIXME: this works, but excluding properties for serialization here feels off in
+          #        this mixin/concern. it could be moved elsewhere, but then we'd depend on
+          #        the load order of mixins…
+          if @skip_properties
+            options = options.merge(exclude: @skip_properties)
+          end
+
           return super if no_caching?
 
           cached_json_rep = OpenProject::Cache.fetch(json_cache_key) do
@@ -196,6 +203,7 @@ module API
           cacheable << json_key_custom_fields
           cacheable << json_key_parts_of_represented
           cacheable << json_key_dependencies
+          cacheable << @skip_properties&.sort&.join(",")
 
           OpenProject::Cache::CacheKey.expand(OpenProject::Cache::CacheKey.key(cacheable.flatten.compact))
         end

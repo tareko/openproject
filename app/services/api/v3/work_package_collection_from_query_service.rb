@@ -161,7 +161,11 @@ module API
             embed_schemas: true,
             current_user:,
             timestamps: query.timestamps,
-            query:
+            query:,
+            # FIXME: Put this into the right place. Also: Do we really
+            #        want to have a (comma separated) list here? Or
+            #        more something like "minimal" or "for_wp_list"…
+            skip_properties: params[:skip_properties]&.split(",")
           )
         end
       end

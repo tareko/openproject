@@ -47,9 +47,10 @@ module API
 
         attr_accessor :timestamps, :query
 
-        def initialize(model, current_user:, embed_links: false, timestamps: nil, query: nil)
+        def initialize(model, current_user:, embed_links: false, timestamps: nil, query: nil, skip_properties: [])
           @query = query
           @timestamps = timestamps || query.try(:timestamps) || []
+          @skip_properties = skip_properties
 
           model = load_complete_model(model)
 

@@ -45,12 +45,14 @@ module API
                        per_page: nil,
                        embed_schemas: false,
                        timestamps: [],
-                       query: nil)
+                       query: nil,
+                       skip_properties: [])
           @project = project
           @total_sums = total_sums
           @embed_schemas = embed_schemas
           @timestamps = timestamps
           @query = query
+          @skip_properties = skip_properties
           # Assigning current_user when super does so as well as paged_models needs access to the
           # value before the assignment in super takes place.
           @current_user = current_user
@@ -133,7 +135,7 @@ module API
                                        WorkPackageDeletedRepresenter
                                      end
 
-                       representer.send(:new, model, current_user:, timestamps:, query:)
+                       representer.send(:new, model, current_user:, timestamps:, query:, skip_properties: @skip_properties)
                      end
                    },
                    exec_context: :decorator,
