@@ -176,8 +176,8 @@ en:
       updated_by: Last updated by %{name}.
     merge_request_component:
       pipeline_statuses:
-        canceled: Canceled
-        canceling: Canceling
+        cancelled: Canceled
+        cancelling: Canceling
         created: Created
         failed: Failed
         manual: Manual
