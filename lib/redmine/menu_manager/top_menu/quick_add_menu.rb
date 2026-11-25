@@ -41,6 +41,7 @@ module Redmine::MenuManager::TopMenu::QuickAddMenu
 
   def render_quick_add_dropdown
     render Primer::Alpha::ActionMenu.new(classes: "op-app-menu--item",
+                                         flex_shrink: 0,
                                          menu_id: "op-app-header--quick-add-menu",
                                          anchor_align: :end) do |menu|
       menu.with_show_button(scheme: :primary,

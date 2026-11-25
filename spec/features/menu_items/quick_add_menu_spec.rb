@@ -32,6 +32,29 @@ require "spec_helper"
 RSpec.describe "Quick-add menu", :js do
   let(:quick_add) { Components::QuickAddMenu.new }
 
+  context "with the Buy now button" do
+    include EnterpriseTokenFactory
+
+    current_user { create(:admin) }
+
+    it "keeps the Create caret inside the button at medium widths" do
+      original_size = page.current_window.size
+      page.current_window.resize_to(820, 900)
+      create_enterprise_token(trial: true, plan: :basic)
+
+      visit projects_path
+      within(".op-app-header") do
+        expect(page).to have_link("Buy now")
+        expect(page).to have_css("#global-search-input", visible: :all)
+        button = page.find_test_selector("quick-add-menu-button")
+        caret_right = button.all("svg").last.evaluate_script("this.getBoundingClientRect().right")
+        expect(caret_right).to be <= button.evaluate_script("this.getBoundingClientRect().right")
+      end
+    ensure
+      page.current_window.resize_to(*original_size)
+    end
+  end
+
   context "as a logged in user with add_project permission" do
     current_user { create(:user, global_permissions: %i[add_project]) }
 
